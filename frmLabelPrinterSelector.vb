@@ -3,6 +3,10 @@
 Public Class frmLabelPrinterSelector
     Dim clsPrinterExtensionObj As New clsPrinterExtension
     Public lablePrinterStatus As Integer
+    Dim isSaved As Boolean = False
+    Dim okPressed As Boolean = False
+    Public isDirectCall As Boolean = False
+
     Sub FillPrinterList()
         Try
             cmbPrinterList.Items.Clear()
@@ -29,19 +33,25 @@ Public Class frmLabelPrinterSelector
 
     End Sub
 
-    Public Sub LabelPrintingMessage(Optional ByRef messageType As String = "", Optional exceptionMessage As Exception = Nothing, Optional ByRef customeMessage As String = "")
-        If messageType = "NoPrinter" Then
-            MessageBox.Show("Please select the label printer", Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning)
-        ElseIf messageType = "missingPrinter" Then
-            MessageBox.Show("Selected " & labelPrinterAfterSelect & "printer is no longer exists.Please select a correct label printer", Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning)
-        ElseIf messageType = "catch" Then
-            MessageBox.Show(exceptionMessage.Message, Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Error)
-        ElseIf messageType = "warning" Then
-            MessageBox.Show(customeMessage, Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning)
-        ElseIf messageType = "warning" Then
-        End If
+    Public Function LabelPrintingMessage(Optional ByRef messageType As String = "", Optional exceptionMessage As Exception = Nothing, Optional ByRef customeMessage As String = "") As DialogResult
+        Try
+            If messageType = "NoPrinter" Then
+                Return MessageBox.Show("Please select the label printer", Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            ElseIf messageType = "missingPrinter" Then
+                Return MessageBox.Show("Selected " & labelPrinterAfterSelect & "printer is no longer exists.Please select a correct label printer", Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            ElseIf messageType = "catch" Then
+                Return MessageBox.Show(exceptionMessage.Message, Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Error)
+            ElseIf messageType = "warning" Then
+                Return MessageBox.Show(customeMessage, Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            ElseIf messageType = "question" Then
+                Return MessageBox.Show(customeMessage, Me.Text, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question)
 
-    End Sub
+            End If
+        Catch ex As Exception
+            MessageBox.Show(ex.Message, Me.Text, MessageBoxButtons.OK, MessageBoxIcon.Error)
+
+        End Try
+    End Function
 
     Public Function PrinterSatus() As String
         Dim printerSatusText As String
@@ -110,7 +120,7 @@ Public Class frmLabelPrinterSelector
         End Try
 
     End Function
-   
+
     Public Sub LoadDefaultData()
         Try
             Dim querySQL As String = "SELECT hasDefaultLblPrinter, defaultLblPrinter FROM spilAgentEmailSettings WHERE AgentID = '" & AgentID & "'"
@@ -119,29 +129,102 @@ Public Class frmLabelPrinterSelector
             If IsNothing(ds) = False Then
                 isDefault = ds.Tables(0).Rows(0).Item("hasDefaultLblPrinter")
                 If IsNothing(chkIsDefault) = False Then
-                    chkIsDefault.Checked = isDefault
+                    If isDirectCall = False Then
+                        chkIsDefault.Checked = isDefault
+                    Else
+                        If isDefault = True Then
+                            labelPrinterBeforeSelect = ds.Tables(0).Rows(0).Item("defaultLblPrinter")
+                            labelPrinterAfterSelect = ds.Tables(0).Rows(0).Item("defaultLblPrinter")
+                        End If
+                        isDirectCall = False
+                    End If
                 End If
             End If
-            labelPrinterBeforeSelect = ds.Tables(0).Rows(0).Item("defaultLblPrinter")
-            labelPrinterAfterSelect = ds.Tables(0).Rows(0).Item("defaultLblPrinter")
         Catch ex As Exception
             LabelPrintingMessage("catch", ex)
 
         End Try
     End Sub
 
-    Sub SaveDefaultData()
-        Dim querySQL As String = "UPDATE spilAgentEmailSettings SET hasDefaultLblPrinter='" & chkIsDefault.Checked & "', defaultLblPrinter = '" & cmbPrinterList.Text & "' WHERE AgentID = '" & AgentID & "'"
-        Dim ds As DataSet = DataBaseAcess("crud", querySQL)
-        If IsNothing(ds) = True Then
-            LabelPrintingMessage("warning", Nothing, "Data not saved")
+    Function SaveDefaultData() As Integer
+        If cmbPrinterList.Text = "" Then
+            LabelPrintingMessage("warning", Nothing, "Plese select a printer before save")
+            Return 0
+        Else
+            Dim querySQL As String = "UPDATE spilAgentEmailSettings SET hasDefaultLblPrinter='" & chkIsDefault.Checked & "', defaultLblPrinter = '" & cmbPrinterList.Text & "' WHERE AgentID = '" & AgentID & "'"
+            Dim ds As DataSet = DataBaseAcess("crud", querySQL)
+            If IsNothing(ds) = True Then
+                LabelPrintingMessage("warning", Nothing, "Data not saved")
+            Else
+                Return 1
+            End If
         End If
-    End Sub
+    End Function
 
     Private Sub btnOk_Click(sender As Object, e As EventArgs) Handles btnOk.Click
+        Dim messageResult As DialogResult
         Try
-            If MessageBox Then
+            messageResult = LabelPrintingMessage("question", Nothing, "Do you want to save printer settings?")
+            okPressed = True
+            If messageResult = Windows.Forms.DialogResult.Yes Then
+                If SaveDefaultData() = 1 Then
+                    isSaved = True
+                Else
+                    isSaved = False
+                End If
+            ElseIf messageResult =DialogResult.No Then
+                isSaved = False
+            ElseIf messageResult = DialogResult.Cancel Then
+                isSaved = False
+                'okPressed = False
+            End If
+
         Catch ex As Exception
+            LabelPrintingMessage("catch", ex)
+
+        End Try
+    End Sub
+
+    Private Sub frmLabelPrinterSelector_FormClosing(sender As Object, e As FormClosingEventArgs) Handles MyBase.FormClosing
+        Dim messageResult As DialogResult
+        Try
+
+            If isSaved = False Then
+                If okPressed = False Then
+                    messageResult = LabelPrintingMessage("question", Nothing, "Do you want to save changes before exit?")
+                    If messageResult = Windows.Forms.DialogResult.Yes Then
+                        If SaveDefaultData() = 0 Then
+                            e.Cancel = True
+                            isSaved = False
+                        Else
+                            isSaved = True
+                        End If
+
+                    ElseIf messageResult = Windows.Forms.DialogResult.No Then
+                        isSaved = False
+
+                    ElseIf messageResult = Windows.Forms.DialogResult.Cancel Then
+                        e.Cancel = True
+                        isSaved = False
+                    End If
+
+                Else
+                    e.Cancel = True
+                End If
+            End If
+        Catch ex As Exception
+            LabelPrintingMessage("catch", ex)
+
+        Finally
+            isSaved = False
+        End Try
+    End Sub
+
+    Private Sub btnCancel_Click(sender As Object, e As EventArgs) Handles btnCancel.Click
+        Try
+            isSaved = True
+        Catch ex As Exception
+            LabelPrintingMessage("catch", ex)
 
         End Try
     End Sub
